@@ -1,0 +1,8 @@
+node_modules/
+dist/
+shots/
+shots-*/
+.mine/
+tools/models/*.onnx
+*.log
+.DS_Store

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<!-- The privacy claim is enforced here, not promised in prose.
+     connect-src 'self' means the page physically cannot exfiltrate camera
+     data to any third party. If something tried, the browser blocks it and
+     logs a CSP violation - that violation is the proof. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  connect-src 'self';
+  img-src 'self' data: blob:;
+  media-src 'self' blob:;
+  script-src 'self' 'wasm-unsafe-eval';
+  style-src 'self' 'unsafe-inline';
+  worker-src 'self' blob:;
+  object-src 'none';
+  base-uri 'none';
+  form-action 'none';
+" />
+
+<title>Too real</title>
+<style>
+  :root {
+    --ink: #f6f5f2;
+    --dim: rgba(246,245,242,.62);
+    --panel: rgba(14,14,13,.82);
+    --line: rgba(246,245,242,.14);
+    --ok: #6ee7a8;
+    --warn: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #0b0b0a; }
+  body {
+    font: 400 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 20px; font-size: 12.5px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.55), transparent);
+  }
+  .brand { font-weight: 700; letter-spacing: -.01em; }
+  .nav { display: flex; gap: 18px; align-items: center; color: var(--dim); }
+  button.link {
+    background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer;
+    padding: 0; border-bottom: 1px solid transparent;
+  }
+  button.link:hover { color: var(--ink); border-bottom-color: var(--line); }
+
+  .footer {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 40px;
+    padding: 28px 20px 22px;
+    background: linear-gradient(to top, rgba(0,0,0,.7), transparent);
+    pointer-events: none;
+  }
+  .footer > * { pointer-events: auto; }
+  h1 {
+    margin: 0; font-size: clamp(52px, 12vw, 132px); line-height: .82;
+    font-weight: 700; letter-spacing: -.045em;
+  }
+  .copy { max-width: 33ch; font-size: 13px; color: var(--dim); }
+  .copy a { color: var(--ink); }
+
+  .sheet {
+    position: fixed; z-index: 20; background: var(--panel);
+    backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.6);
+  }
+  #gate {
+    left: 50%; bottom: 132px; transform: translateX(-50%);
+    width: min(560px, calc(100vw - 32px)); padding: 18px 20px; display: none;
+  }
+  #gate.show { display: block; }
+  #gate .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-size: 13px; padding: 9px 15px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--line); background: rgba(255,255,255,.07); color: var(--ink);
+  }
+  .btn:hover { background: rgba(255,255,255,.13); }
+  .btn.primary { background: var(--ink); color: #111; border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { background: #fff; }
+  .btn.danger { border-color: rgba(255,120,120,.4); color: #ffb3b3; }
+  .gate-note { flex: 1 1 240px; font-size: 12px; color: var(--dim); }
+
+  #audit {
+    top: 52px; right: 20px; width: min(400px, calc(100vw - 40px));
+    padding: 18px 20px; display: none; max-height: calc(100vh - 90px); overflow: auto;
+  }
+  #audit.show { display: block; }
+  h2 { margin: 0 0 4px; font-size: 13px; letter-spacing: .02em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  h3 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; }
+  p { margin: 0 0 10px; font-size: 13px; color: var(--dim); }
+  p strong, li strong { color: var(--ink); font-weight: 600; }
+  ul { margin: 0 0 10px; padding-left: 18px; font-size: 13px; color: var(--dim); }
+  li { margin-bottom: 5px; }
+
+  .stat { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .stat:last-child { border-bottom: 0; }
+  .stat span:first-child { color: var(--dim); }
+  .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .val.ok { color: var(--ok); }
+  .val.warn { color: var(--warn); }
+
+  .log {
+    margin-top: 8px; max-height: 168px; overflow: auto; font-size: 11.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--dim);
+  }
+  .log div { padding: 2px 0; border-bottom: 1px dotted rgba(255,255,255,.07); word-break: break-all; }
+  .tag { display: inline-block; padding: 0 5px; border-radius: 4px; background: rgba(255,255,255,.1); margin-right: 6px; }
+
+  #reticle {
+    position: fixed; z-index: 6; left: 50%; top: 50%; width: 22px; height: 22px;
+    margin: -11px 0 0 -11px; border-radius: 50%; pointer-events: none;
+    border: 1px solid rgba(255,255,255,.55); opacity: 0; transition: opacity .25s;
+  }
+  #reticle.live { opacity: .85; }
+  #reticle::after { content: ""; position: absolute; inset: 8px; border-radius: 50%; background: var(--ok); }
+
+  #fatal {
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(520px, calc(100vw - 40px)); padding: 20px 22px; z-index: 40;
+    border-color: rgba(255,120,120,.35);
+  }
+  #fatal[hidden] { display: none; }
+  #fatal code {
+    display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(0,0,0,.45); font-size: 12.5px; word-break: break-word;
+  }
+  #fatal .fatal-hint { margin-top: 12px; margin-bottom: 0; font-size: 12.5px; }
+
+  #debug {
+    left: 20px; bottom: 20px; width: min(360px, calc(100vw - 40px));
+    padding: 16px 18px; display: none; z-index: 15;
+  }
+  #debug.show { display: block; }
+  .debug-vid-wrap {
+    position: relative; width: 100%; border-radius: 10px; overflow: hidden;
+    background: #000; aspect-ratio: 4 / 3; margin-bottom: 10px;
+  }
+  .debug-vid-wrap video, .debug-vid-wrap canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  }
+  /* mirrored, so it behaves like a mirror - moving right moves the dot right */
+  .debug-vid-wrap video { transform: scaleX(-1); object-fit: cover; }
+  .debug-vid-wrap canvas { transform: scaleX(-1); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">BORING</div>
+  <div class="nav">
+    <span style="color:var(--dim)" id="modeLabel">splat only</span>
+    <button class="link" id="btnAudit">Privacy</button>
+    <button class="link" id="btnDebug">Debug</button>
+    <button class="link" id="btnCam">Camera</button>
+  </div>
+</div>
+
+<div id="reticle"></div>
+
+<!-- shown only when the scene cannot render, so a black screen is never silent -->
+<div class="sheet" id="fatal" hidden>
+  <h2>Could not render the scene</h2>
+  <p><span>stage</span>: <code>message</code></p>
+  <p class="fatal-hint">
+    If this says the WebGL context failed, your browser or GPU driver is blocking
+    WebGL2. Try a hardware-accelerated tab, or open
+    <code>?splat=ci.ply&amp;meta=ci.json</code> for a much smaller scene.
+  </p>
+</div>
+
+<div class="footer">
+  <h1>BORING</h1>
+  <div class="copy">
+    Literally the most boring website you can imagine. Useful to learn that nothing is
+    really exciting when you read, and the screen turns it into a window, which is still
+    the most exciting thing here. Please move your head accordingly.
+    <br /><br />
+    <button class="link" id="btnLearn">Learn more &rarr;</button>
+    <span style="opacity:.6"> &nbsp;·&nbsp; replica of
+      <a href="https://x.com/_fojcik/status/2108933694190768152" target="_blank" rel="noopener">@_fojcik</a>'s experiment</span>
+  </div>
+</div>
+
+<!-- consent gate: camera is OFF until the user asks for it -->
+<div class="sheet" id="gate">
+  <div class="row">
+    <button class="btn primary" id="btnEnable">Use my camera</button>
+    <button class="btn" id="btnMouse">Just move the mouse</button>
+    <div class="gate-note">
+      Head tracking runs entirely in this tab. Nothing is uploaded — and the page is
+      forbidden from uploading it. <button class="link" id="btnAudit2">Show me how.</button>
+    </div>
+  </div>
+</div>
+
+<!-- the audit panel -->
+<div class="sheet" id="audit">
+  <h2>Camera audit</h2>
+  <p>Every outbound request this page has made, counted live. Nothing here is a policy promise.</p>
+
+  <div class="stat"><span>Requests since camera enabled</span><span class="val ok" id="sSince">0</span></div>
+  <div class="stat"><span>Frames sent off-device</span><span class="val ok" id="sFrames">0</span></div>
+  <div class="stat"><span>Data written to storage</span><span class="val ok" id="sStore">0 B</span></div>
+  <div class="stat"><span>Third-party origins contacted</span><span class="val ok" id="sThird">0</span></div>
+  <div class="stat"><span>Head pose crossing the boundary</span><span class="val ok" id="sPose">6 floats</span></div>
+
+  <h3>How this is checkable</h3>
+  <ul>
+    <li><strong>Enforced, not promised.</strong> <code>connect-src 'self'</code> in this page's
+      CSP means the browser itself blocks any attempt to phone home. A leak would surface
+      as a CSP violation in the console.</li>
+    <li><strong>Self-hosted model.</strong> MediaPipe's WASM and the face model are served
+      from this origin. Google is never contacted, so the "usage metrics" clause in their
+      privacy notice has nowhere to send anything.</li>
+    <li><strong>Trivially lossy.</strong> The renderer receives a 6-float head pose and
+      nothing else. You cannot reconstruct a face from the pose of a face.</li>
+    <li><strong>Cut the wire.</strong> The button below hard-fails every network API.
+      The effect keeps working. That is the falsifiable version of the claim.</li>
+  </ul>
+  <div class="row" style="display:flex; gap:10px; flex-wrap:wrap">
+    <button class="btn" id="btnCut">Cut the wire</button>
+    <button class="btn" id="btnReset">Restore network</button>
+  </div>
+
+  <h3>Request log</h3>
+  <div class="log" id="log"></div>
+</div>
+
+<!-- camera debug: what the camera actually sees, so "it's not accurate" is diagnosable -->
+<div class="sheet" id="debug">
+  <h2 style="display:flex; justify-content:space-between; align-items:center">Camera debug
+    <button class="link" id="btnDebugHide" style="font-size:15px" title="Hide">✕</button>
+  </h2>
+  <div class="debug-vid-wrap">
+    <video id="dbgVideo" autoplay playsinline muted></video>
+    <canvas id="dbgCanvas"></canvas>
+  </div>
+  <div class="stat"><span>Face detected</span><span class="val" id="dFace">no</span></div>
+  <div class="stat"><span>Landmarks</span><span class="val" id="dCount">0</span></div>
+  <div class="stat"><span>Video size</span><span class="val" id="dVid">-</span></div>
+  <div class="stat"><span>Raw position (cm)</span><span class="val" id="dRaw">-</span></div>
+  <div class="stat"><span>Raw yaw</span><span class="val" id="dYaw">-</span></div>
+  <div class="stat"><span>Calibrated pose (m)</span><span class="val" id="dPose">-</span></div>
+  <div class="stat"><span>Calibration</span><span class="val" id="dCalib">-</span></div>
+  <div class="row" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px">
+    <button class="btn" id="btnRecalib">Recalibrate</button>
+  </div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

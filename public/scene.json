@@ -1,0 +1,9 @@
+{
+  "hfov": 62.0,
+  "vfov": 37.348871132003914,
+  "aspect": 1.7777777777777777,
+  "zNear": 26.0,
+  "zFar": 104.0,
+  "splats": 230400,
+  "source": "hallway-source.png"
+}
